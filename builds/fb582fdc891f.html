@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aviator Predictor - Ajmeer Khan</title>
+    <style>
+        /* ================= CSS STYLING ================= */
+        :root {
+            --neon-cyan: #00f3ff;
+            --dark-bg: #050a15;
+            --panel-bg: rgba(10, 20, 35, 0.95);
+            --neon-red: #ff2a2a;
+            --neon-green: #00ff88;
+            --gold: #ffcc00;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body { 
+            background: radial-gradient(circle at center, #0a1525 0%, #000000 100%);
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            overflow: hidden; 
+            color: white;
+        }
+
+        /* नया प्रीमियम पैनल */
+        .hack-panel {
+            width: 340px;
+            background: var(--panel-bg);
+            border: 2px solid var(--neon-cyan);
+            border-radius: 15px;
+            padding: 25px 20px;
+            text-align: center;
+            box-shadow: 0 0 25px rgba(0, 243, 255, 0.3), inset 0 0 15px rgba(0, 243, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* स्कैनलाइन इफेक्ट */
+        .hack-panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 2px;
+            background: var(--neon-cyan);
+            box-shadow: 0 0 10px var(--neon-cyan);
+            animation: scan 2s linear infinite;
+        }
+
+        @keyframes scan {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+
+        /* VIP बैज */
+        .vip-badge {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: linear-gradient(45deg, #ffcc00, #ff9900);
+            color: #000;
+            font-size: 10px;
+            font-weight: 900;
+            padding: 4px 12px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(255, 204, 0, 0.6);
+            letter-spacing: 1px;
+        }
+
+        .close-btn {
+            position: absolute;
+            left: 15px;
+            top: 15px;
+            color: var(--neon-cyan);
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+            z-index: 5;
+            text-shadow: 0 0 10px var(--neon-cyan);
+        }
+        .close-btn:hover {
+            color: #fff;
+            transform: scale(1.2) rotate(90deg);
+        }
+
+        .header {
+            color: #fff;
+            font-weight: 900;
+            font-size: 20px;
+            margin-top: 15px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            text-shadow: 0 0 15px var(--neon-cyan);
+        }
+
+        .sub-header {
+            color: var(--neon-cyan);
+            font-size: 11px;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            text-transform: uppercase;
+            opacity: 0.8;
+        }
+
+        /* मुख्य डिस्प्ले बॉक्स (जहाँ प्रेडिक्शन दिखेगा) */
+        .display-box {
+            width: 100%;
+            height: 140px;
+            background: #000;
+            border: 2px solid rgba(0, 243, 255, 0.3);
+            border-radius: 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            margin-bottom: 20px;
+            box-shadow: inset 0 0 20px rgba(0, 243, 255, 0.1);
+        }
+
+        .display-label {
+            color: #888;
+            font-size: 12px;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .display-value {
+            font-size: 45px;
+            font-weight: 900;
+            color: var(--neon-cyan);
+            text-shadow: 0 0 20px var(--neon-cyan);
+            font-family: 'Courier New', monospace;
+            transition: 0.3s;
+        }
+
+        /* प्रेडिक्शन आने के बाद का इफेक्ट */
+        .display-value.crash {
+            color: var(--neon-red);
+            text-shadow: 0 0 20px var(--neon-red);
+            animation: blast 0.5s ease-out;
+        }
+
+        @keyframes blast {
+            0% { transform: scale(1.2); }
+            50% { transform: scale(0.9); }
+            100% { transform: scale(1); }
+        }
+
+        /* लॉग टेक्स्ट */
+        .log-text {
+            font-size: 11px;
+            color: var(--gold);
+            margin-bottom: 15px;
+            height: 15px;
+            font-family: 'Courier New', monospace;
+            text-align: center;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        /* मुख्य बटन */
+        .btn-hack {
+            width: 100%;
+            padding: 15px;
+            background: transparent;
+            border: 2px solid var(--neon-cyan);
+            border-radius: 10px;
+            color: var(--neon-cyan);
+            font-size: 16px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: 0.3s;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.2);
+        }
+
+        .btn-hack:hover {
+            background: var(--neon-cyan);
+            color: #000;
+            box-shadow: 0 0 20px var(--neon-cyan);
+        }
+
+        .btn-hack:disabled {
+            border-color: #333;
+            color: #555;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .btn-hack::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%; width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+            animation: shine 2.5s infinite;
+        }
+
+        @keyframes shine {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        /* फुटर नाम */
+        .footer-name {
+            margin-top: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            color: var(--gold);
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px rgba(255, 204, 0, 0.5);
+        }
+
+        /* ================= END CSS ================= */
+    </style>
+</head>
+<body>
+
+    <!-- Main Panel -->
+    <div class="hack-panel">
+        <div class="vip-badge">VIP PRO</div>
+        <div class="close-btn" onclick="Android.closeMenu()">✕</div>
+        
+        <div class="header">PREDICTION HACK</div>
+        <div class="sub-header">SERVER BYPASS v5.0</div>
+
+        <!-- मुख्य डिस्प्ले (क्रैश पॉइंट यहाँ दिखेगा) -->
+        <div class="display-box">
+            <div class="display-label" id="display-label">STATUS</div>
+            <div class="display-value" id="display-value">1.00x</div>
+        </div>
+
+        <!-- हैकिंग लॉग्स -->
+        <div class="log-text" id="log-text">SYSTEM READY...</div>
+
+        <!-- मुख्य बटन -->
+        <button id="start-btn" class="btn-hack" onclick="runHack()">GAME HACK</button>
+
+        <!-- आपका नाम -->
+        <div class="footer-name">👑 AJMEER KHAN 👑</div>
+    </div>
+
+    <script>
+        /* ================= JAVASCRIPT LOGIC ================= */
+        
+        const startBtn = document.getElementById('start-btn');
+        const displayLabel = document.getElementById('display-label');
+        const displayValue = document.getElementById('display-value');
+        const logText = document.getElementById('log-text');
+
+        let isHacking = false;
+
+        // रियलिस्टिक क्रैश पॉइंट जनरेट करने का लॉजिक (80-90% सटीकता का एहसास)
+        // ज्यादातर गेम में क्रैश 1.10x से 3.00x के बीच ही होता है
+        function generateCrashPoint() {
+            let rand = Math.random() * 100;
+            
+            if (rand < 60) {
+                // 60% चांस: 1.10x से 2.00x के बीच (बहुत आम)
+                return (Math.random() * 0.9 + 1.10).toFixed(2);
+            } else if (rand < 85) {
+                // 25% चांस: 2.00x से 4.00x के बीच (मध्यम)
+                return (Math.random() * 2.0 + 2.00).toFixed(2);
+            } else if (rand < 95) {
+                // 10% चांस: 4.00x से 8.00x के बीच (अच्छा)
+                return (Math.random() * 4.0 + 4.00).toFixed(2);
+            } else {
+                // 5% चांस: 8.00x से 15.00x (दुर्लभ)
+                return (Math.random() * 7.0 + 8.00).toFixed(2);
+            }
+        }
+
+        // हैकिंग के दौरान दिखने वाले मैसेज
+        const logs = [
+            "CONNECTING TO SERVER...",
+            "BYPASSING FIREWALL...",
+            "ANALYZING SERVER SEED...",
+            "CALCULATING CRASH POINT...",
+            "ALMOST DONE..."
+        ];
+
+        function runHack() {
+            if (isHacking) return;
+            isHacking = true;
+
+            // UI को रीसेट करें
+            startBtn.disabled = true;
+            startBtn.innerText = "HACKING...";
+            displayValue.classList.remove('crash');
+            displayValue.style.color = "var(--neon-cyan)";
+            displayLabel.innerText = "LOADING...";
+            
+            let progress = 0;
+            let logIndex = 0;
+
+            // लोडिंग और लॉग्स का एनिमेशन
+            let hackInterval = setInterval(() => {
+                // परसेंटेज बढ़ाना (0% से 100%)
+                progress += Math.floor(Math.random() * 10) + 5; 
+                if (progress > 100) progress = 100;
+
+                displayValue.innerText = progress + "%";
+
+                // लॉग्स बदलना
+                if (progress % 20 === 0 && logIndex < logs.length) {
+                    logText.innerText = "> " + logs[logIndex];
+                    logIndex++;
+                }
+
+                // जब 100% पूरा हो जाए
+                if (progress === 100) {
+                    clearInterval(hackInterval);
+                    logText.innerText = "> PREDICTION COMPLETE!";
+                    
+                    setTimeout(() => {
+                        showPrediction();
+                    }, 500); // थोड़ी देर रुक कर रिजल्ट दिखाएं
+                }
+            }, 150); // हर 150ms में अपडेट
+        }
+
+        function showPrediction() {
+            // क्रैश पॉइंट निकालें
+            let crashPoint = generateCrashPoint();
+
+            // डिस्प्ले अपडेट करें
+            displayLabel.innerText = "CRASH AT";
+            displayValue.innerText = crashPoint + "x";
+
+            // रंग बदलें (अगर 2.00x से ऊपर है तो हरा, वरना लाल/खतरनाक)
+            if (parseFloat(crashPoint) >= 2.00) {
+                displayValue.style.color = "var(--neon-green)";
+                displayValue.style.textShadow = "0 0 20px var(--neon-green)";
+            } else {
+                // क्रैश इफेक्ट (लाल रंग और हिलना)
+                displayValue.classList.add('crash');
+                displayValue.style.color = "var(--neon-red)";
+                displayValue.style.textShadow = "0 0 20px var(--neon-red)";
+            }
+
+            logText.innerText = "> TARGET ACQUIRED!";
+
+            // बटन वापस चालू करें
+            isHacking = false;
+            startBtn.disabled = false;
+            startBtn.innerText = "GAME HACK AGAIN";
+        }
+        /* ================= END JAVASCRIPT ================= */
+    </script>
+</body>
+</html>
