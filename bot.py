@@ -1,401 +1,350 @@
+
 import os
+import io
+import json
+import uuid
+import base64
+import zipfile
 import logging
-from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
+import asyncio
+import urllib.request
+import urllib.error
+
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes,
     MessageHandler,
+    ContextTypes,
     filters,
 )
 
 # ==========================================
-# AJMEER KHAN HACKER KING - TELEGRAM BOT
+# AJMEER KHAN HACKER KING
+# AUTOMATIC APK BUILDER
 # ==========================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8800135805:AAHaIZJBsRKbDFXVEYBrwZhKgg4K8mWzVk0")
-BOT_NAME = "AJMEER KHAN HACKER KING"
-DEVELOPER = "Ajmeer Khan"
+BOT_TOKEN = os.environ["8851145300:AAF2GmY9jk-TXO-gYd-GSx6wL1_ph90YmP4"]
+GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 
-# Logging Configuration
+GITHUB_OWNER = os.environ["GITHUB_OWNER"]
+GITHUB_REPO = os.environ["GITHUB_REPO"]
+GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
+
+# Optional: comma-separated Telegram user IDs
+ALLOWED_USERS = {
+    int(x.strip())
+    for x in os.getenv("ALLOWED_USERS", "").split(",")
+    if x.strip()
+}
+
+MAX_FILE_SIZE = 20 * 1024 * 1024
+
+API = "https://api.github.com"
+WORKFLOW = "build-apk.yml"
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+
 logger = logging.getLogger(__name__)
 
 
-# ==========================================
-# START COMMAND
-# ==========================================
+def authorized(user_id):
+    return not ALLOWED_USERS or user_id in ALLOWED_USERS
+
+
+def github_request(method, endpoint, data=None):
+    url = API + endpoint
+
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "Ajmeer-Apk-Builder",
+    }
+
+    body = None
+
+    if data is not None:
+        body = json.dumps(data).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers=headers,
+        method=method,
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            result = response.read()
+
+            if result:
+                return json.loads(result.decode("utf-8"))
+
+            return {}
+
+    except urllib.error.HTTPError as error:
+        details = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"GitHub error {error.code}: {details[:1000]}"
+        ) from error
+
+
+def upload_to_github(path, content):
+    encoded = base64.b64encode(content).decode("ascii")
+
+    endpoint = (
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
+        f"/contents/{path}"
+    )
+
+    return github_request(
+        "PUT",
+        endpoint,
+        {
+            "message": f"Upload APK build input: {path}",
+            "content": encoded,
+            "branch": GITHUB_BRANCH,
+        },
+    )
+
+
+def trigger_workflow(archive_path):
+    endpoint = (
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
+        f"/actions/workflows/{WORKFLOW}/dispatches"
+    )
+
+    github_request(
+        "POST",
+        endpoint,
+        {
+            "ref": GITHUB_BRANCH,
+            "inputs": {
+                "archive_path": archive_path,
+            },
+        },
+    )
+
+
+def validate_zip(data):
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+
+            if len(entries) > 500:
+                raise ValueError("Too many files in ZIP.")
+
+            total_size = 0
+
+            for item in entries:
+                name = item.filename.replace("\\", "/")
+
+                if (
+                    name.startswith("/")
+                    or ".." in name.split("/")
+                    or "\x00" in name
+                ):
+                    raise ValueError("Unsafe ZIP file path.")
+
+                if item.file_size > MAX_FILE_SIZE:
+                    raise ValueError("A ZIP entry is too large.")
+
+                total_size += item.file_size
+
+                if total_size > 100 * 1024 * 1024:
+                    raise ValueError("Extracted ZIP is too large.")
+
+                if item.flag_bits & 0x1:
+                    raise ValueError("Encrypted ZIP files are unsupported.")
+
+                if item.file_size > 0:
+                    if item.compress_size == 0:
+                        raise ValueError("Invalid ZIP entry.")
+
+                    if item.file_size > item.compress_size * 100:
+                        raise ValueError("Suspicious compression ratio.")
+
+    except zipfile.BadZipFile as error:
+        raise ValueError("Invalid ZIP file.") from error
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🚀 AJMEER KHAN HACKER KING\n\n"
+        "Welcome to Automatic APK Builder!\n\n"
+        "📤 Send an HTML, PHP or ZIP project.\n"
+        "⚙️ GitHub Actions will build your APK.\n\n"
+        "Commands:\n"
+        "/start - Start bot\n"
+        "/apk - APK builder information\n"
+        "/help - Help"
+    )
+
+
+async def help_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    await update.message.reply_text(
+        "📱 APK BUILDER HELP\n\n"
+        "Supported files:\n"
+        "• .html\n"
+        "• .php\n"
+        "• .zip\n\n"
+        "For a ZIP project, include index.html.\n"
+        "PHP needs a hosted PHP server to execute.\n\n"
+        "Maximum upload: 20 MB."
+    )
+
+
+async def apk_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    await update.message.reply_text(
+        "⚡ AUTOMATIC APK BUILDER\n\n"
+        "1. Upload your website file.\n"
+        "2. Wait for GitHub Actions.\n"
+        "3. Open the build link.\n"
+        "4. Download the APK artifact.\n\n"
+        "Supported: HTML / PHP / ZIP."
+    )
+
+
+async def process_file(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     user = update.effective_user
+    message = update.message
 
-    keyboard = [
-        [
-            InlineKeyboardButton("🤖 Bot Information", callback_data="about"),
-            InlineKeyboardButton("👤 My Profile", callback_data="profile"),
-        ],
-        [
-            InlineKeyboardButton("📋 Commands", callback_data="commands"),
-            InlineKeyboardButton("⏰ Date & Time", callback_data="time"),
-        ],
-        [
-            InlineKeyboardButton("⚡ Ping Bot", callback_data="ping"),
-        ],
-        [
-            InlineKeyboardButton("🛠 Developer", callback_data="developer"),
-        ],
-    ]
+    if not authorized(user.id):
+        await message.reply_text("⛔ You are not authorized.")
+        return
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    document = message.document
 
-    message = (
-        f"👑 <b>WELCOME TO {BOT_NAME}</b>\n\n"
-        f"🔥 Hello, {user.first_name}!\n\n"
-        "🚀 Welcome to your professional Telegram bot.\n"
-        "Choose an option from the menu below.\n\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "⚡ <b>Status:</b> Online\n"
-        "🤖 <b>Version:</b> 1.0.0\n"
-        f"👑 <b>Developer:</b> {DEVELOPER}\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "💎 Enjoy using the bot!"
-    )
+    if not document:
+        return
 
-    await update.message.reply_text(
-        message,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.HTML,
-    )
+    filename = document.file_name or "website.html"
+    extension = os.path.splitext(filename)[1].lower()
 
-
-# ==========================================
-# HELP COMMAND
-# ==========================================
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = (
-        "📚 <b>BOT COMMANDS</b>\n\n"
-        "🚀 /start - Start the bot\n"
-        "📋 /help - Show commands\n"
-        "ℹ️ /about - About the bot\n"
-        "🆔 /id - Get your Telegram ID\n"
-        "👤 /info - Your profile information\n"
-        "⏰ /time - Current date and time\n"
-        "⚡ /ping - Check bot response\n"
-        "🔄 /menu - Open main menu\n\n"
-        "👑 <b>AJMEER KHAN HACKER KING</b>"
-    )
-
-    await update.message.reply_text(
-        message,
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ==========================================
-# ABOUT COMMAND
-# ==========================================
-
-async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = (
-        "🤖 <b>ABOUT THIS BOT</b>\n\n"
-        "👑 Name: AJMEER KHAN HACKER KING\n"
-        "⚙️ Platform: Telegram\n"
-        "🐍 Language: Python\n"
-        "📦 Library: python-telegram-bot\n"
-        "🔥 Version: 1.0.0\n"
-        "🟢 Status: Active\n\n"
-        "💎 A professional Telegram bot "
-        "designed for useful commands and interactive features."
-    )
-
-    await update.message.reply_text(
-        message,
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ==========================================
-# USER ID COMMAND
-# ==========================================
-
-async def user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-
-    await update.message.reply_text(
-        f"🆔 <b>Your Telegram ID:</b>\n\n"
-        f"<code>{user.id}</code>",
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ==========================================
-# USER INFORMATION COMMAND
-# ==========================================
-
-async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-
-    username = f"@{user.username}" if user.username else "Not available"
-    full_name = user.full_name or "Not available"
-
-    message = (
-        "👤 <b>YOUR PROFILE INFORMATION</b>\n\n"
-        f"📝 <b>Name:</b> {full_name}\n"
-        f"🔗 <b>Username:</b> {username}\n"
-        f"🆔 <b>User ID:</b> <code>{user.id}</code>\n"
-        f"🌐 <b>Language:</b> {user.language_code or 'Unknown'}\n"
-        f"🤖 <b>Bot Account:</b> {'Yes' if user.is_bot else 'No'}"
-    )
-
-    await update.message.reply_text(
-        message,
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ==========================================
-# DATE AND TIME COMMAND
-# ==========================================
-
-async def current_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    now = datetime.now().astimezone()
-
-    message = (
-        "⏰ <b>DATE & TIME INFORMATION</b>\n\n"
-        f"📅 Date: {now.strftime('%d-%m-%Y')}\n"
-        f"🕒 Time: {now.strftime('%I:%M:%S %p')}\n"
-        f"🌍 Timezone: {now.tzname() or 'Local'}"
-    )
-
-    await update.message.reply_text(
-        message,
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ==========================================
-# PING COMMAND
-# ==========================================
-
-async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    start_time = datetime.now()
-
-    message = await update.message.reply_text("⚡ Checking bot status...")
-
-    elapsed = (datetime.now() - start_time).total_seconds() * 1000
-
-    await message.edit_text(
-        "🟢 <b>BOT IS ONLINE!</b>\n\n"
-        f"⚡ Response Time: {elapsed:.2f} ms\n"
-        "🚀 Status: Operational\n"
-        "👑 Powered by AJMEER KHAN",
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ==========================================
-# MENU COMMAND
-# ==========================================
-
-async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [
-            InlineKeyboardButton("🤖 About", callback_data="about"),
-            InlineKeyboardButton("👤 Profile", callback_data="profile"),
-        ],
-        [
-            InlineKeyboardButton("📋 Commands", callback_data="commands"),
-            InlineKeyboardButton("⏰ Time", callback_data="time"),
-        ],
-        [
-            InlineKeyboardButton("⚡ Ping", callback_data="ping"),
-            InlineKeyboardButton("🛠 Developer", callback_data="developer"),
-        ],
-    ]
-
-    await update.message.reply_text(
-        "👑 <b>MAIN MENU</b>\n\nSelect an option:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.HTML,
-    )
-
-
-# ==========================================
-# INLINE BUTTON HANDLER
-# ==========================================
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-
-    await query.answer()
-
-    user = query.from_user
-    data = query.data
-
-    if data == "about":
-        text = (
-            "🤖 <b>ABOUT BOT</b>\n\n"
-            "👑 AJMEER KHAN HACKER KING\n"
-            "🐍 Python Telegram Bot\n"
-            "🔥 Version: 1.0.0\n"
-            "🟢 Status: Active"
-        )
-    elif data == "profile":
-        username = f"@{user.username}" if user.username else "Not available"
-
-        text = (
-            "👤 <b>YOUR PROFILE</b>\n\n"
-            f"📝 Name: {user.full_name}\n"
-            f"🔗 Username: {username}\n"
-            f"🆔 ID: <code>{user.id}</code>\n"
-            f"🌐 Language: {user.language_code or 'Unknown'}"
-        )
-    elif data == "commands":
-        text = (
-            "📋 <b>AVAILABLE COMMANDS</b>\n\n"
-            "/start - Start bot\n"
-            "/help - Help menu\n"
-            "/about - About bot\n"
-            "/id - Telegram ID\n"
-            "/info - User information\n"
-            "/time - Date and time\n"
-            "/ping - Bot status\n"
-            "/menu - Main menu"
-        )
-    elif data == "time":
-        now = datetime.now().astimezone()
-
-        text = (
-            "⏰ <b>DATE & TIME</b>\n\n"
-            f"📅 {now.strftime('%d-%m-%Y')}\n"
-            f"🕒 {now.strftime('%I:%M:%S %p')}\n"
-            f"🌍 {now.tzname() or 'Local'}"
-        )
-    elif data == "ping":
-        text = (
-            "🟢 <b>BOT IS ONLINE!</b>\n\n"
-            "⚡ Status: Operational\n"
-            "🚀 Response: Active"
-        )
-    elif data == "developer":
-        text = (
-            "🛠 <b>DEVELOPER INFORMATION</b>\n\n"
-            "👑 Developer: Ajmeer Khan\n"
-            "🔥 Brand: AJMEER KHAN HACKER KING\n"
-            "🐍 Language: Python"
-        )
-    elif data == "main_menu":
-        keyboard = [
-            [
-                InlineKeyboardButton("🤖 About", callback_data="about"),
-                InlineKeyboardButton("👤 Profile", callback_data="profile"),
-            ],
-            [
-                InlineKeyboardButton("📋 Commands", callback_data="commands"),
-                InlineKeyboardButton("⏰ Time", callback_data="time"),
-            ],
-            [
-                InlineKeyboardButton("⚡ Ping", callback_data="ping"),
-                InlineKeyboardButton("🛠 Developer", callback_data="developer"),
-            ],
-        ]
-        await query.edit_message_text(
-            "👑 <b>MAIN MENU</b>\n\nSelect an option:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.HTML,
+    if extension not in (".html", ".php", ".zip"):
+        await message.reply_text(
+            "❌ Unsupported file.\n"
+            "Upload HTML, PHP or ZIP."
         )
         return
-    else:
-        text = "❌ Unknown option. Please try again."
 
-    await query.edit_message_text(
-        text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]
-        ]),
+    if document.file_size and document.file_size > MAX_FILE_SIZE:
+        await message.reply_text("❌ Maximum file size is 20 MB.")
+        return
+
+    status = await message.reply_text(
+        "⏳ Downloading your project..."
     )
 
+    try:
+        telegram_file = await context.bot.get_file(document.file_id)
 
-# ==========================================
-# UNKNOWN COMMAND HANDLER
-# ==========================================
+        data = await telegram_file.download_as_bytearray()
+        data = bytes(data)
 
-async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "❌ Unknown command!\n\n"
-        "Use /help to see all available commands."
-    )
+        if len(data) > MAX_FILE_SIZE:
+            raise ValueError("File exceeds the 20 MB limit.")
 
+        if extension == ".zip":
+            validate_zip(data)
 
-# ==========================================
-# ERROR HANDLER
-# ==========================================
+        job_id = uuid.uuid4().hex[:12]
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error("An exception occurred:", exc_info=context.error)
+        safe_extension = extension
+        archive_path = f"builds/{job_id}{safe_extension}"
 
-
-# ==========================================
-# MAIN FUNCTION
-# ==========================================
-
-def main():
-    if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
-        raise ValueError(
-            "Please set your Telegram bot token using "
-            "the BOT_TOKEN environment variable."
+        await status.edit_text(
+            "📤 Uploading project to GitHub..."
         )
 
-    # Timeouts set to 30 seconds to prevent connection drops in Termux
-    application = (
+        await asyncio.to_thread(
+            upload_to_github,
+            archive_path,
+            data
+        )
+
+        await status.edit_text(
+            "🚀 Starting GitHub Actions..."
+        )
+
+        await asyncio.to_thread(
+            trigger_workflow,
+            archive_path
+        )
+
+        run_url = (
+            f"https://github.com/{GITHUB_OWNER}/"
+            f"{GITHUB_REPO}/actions"
+        )
+
+        await status.edit_text(
+            "✅ BUILD STARTED SUCCESSFULLY!\n\n"
+            f"🆔 Build ID: {job_id}\n"
+            f"📁 File: {filename}\n\n"
+            "⚙️ Your APK is being compiled.\n\n"
+            "📦 Open GitHub Actions to check progress "
+            "and download the APK artifact:\n"
+            f"{run_url}\n\n"
+            "👑 AJMEER KHAN HACKER KING"
+        )
+
+    except Exception as error:
+        logger.exception("APK build submission failed")
+
+        await status.edit_text(
+            "❌ BUILD SUBMISSION FAILED\n\n"
+            f"Reason: {str(error)[:700]}"
+        )
+
+
+async def error_handler(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    logger.exception(
+        "Telegram bot error",
+        exc_info=context.error
+    )
+
+
+def main():
+    app = (
         Application.builder()
         .token(BOT_TOKEN)
-        .connect_timeout(30.0)
-        .read_timeout(30.0)
-        .write_timeout(30.0)
-        .pool_timeout(30.0)
         .build()
     )
 
-    # Register commands
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("about", about))
-    application.add_handler(CommandHandler("id", user_id))
-    application.add_handler(CommandHandler("info", user_info))
-    application.add_handler(CommandHandler("time", current_time))
-    application.add_handler(CommandHandler("ping", ping))
-    application.add_handler(CommandHandler("menu", menu))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("apk", apk_command))
 
-    # Register inline buttons
-    application.add_handler(CallbackQueryHandler(button_handler))
-
-    # Unknown commands
-    application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
-
-    # Register error handler
-    application.add_error_handler(error_handler)
-
-    logger.info("%s is starting...", BOT_NAME)
-
-    # Start bot
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True,
+    app.add_handler(
+        MessageHandler(
+            filters.Document.ALL,
+            process_file
+        )
     )
 
+    app.add_error_handler(error_handler)
 
-# ==========================================
-# RUN BOT
-# ==========================================
+    logger.info("Ajmeer APK Builder started.")
+
+    app.run_polling()
+
 
 if __name__ == "__main__":
     main()
