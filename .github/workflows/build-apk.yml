@@ -1,0 +1,148 @@
+
+name: Automatic APK Builder
+
+on:
+  workflow_dispatch:
+    inputs:
+      archive_path:
+        description: Uploaded website archive
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate Uploaded Archive
+        env:
+          ARCHIVE_PATH: ${{ inputs.archive_path }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import zipfile
+
+          path = os.environ["ARCHIVE_PATH"]
+
+          if not path.startswith("builds/"):
+              raise SystemExit("Invalid archive location")
+
+          if not os.path.isfile(path):
+              raise SystemExit("Uploaded archive not found")
+
+          if os.path.getsize(path) > 20 * 1024 * 1024:
+              raise SystemExit("Archive too large")
+
+          if path.lower().endswith(".zip"):
+              with zipfile.ZipFile(path) as z:
+                  if len(z.infolist()) > 500:
+                      raise SystemExit("Too many ZIP entries")
+
+                  total = 0
+                  for item in z.infolist():
+                      name = item.filename.replace("\\", "/")
+
+                      if (
+                          name.startswith("/")
+                          or ".." in name.split("/")
+                      ):
+                          raise SystemExit("Unsafe archive path")
+
+                      total += item.file_size
+
+                      if total > 100 * 1024 * 1024:
+                          raise SystemExit("Extracted archive too large")
+
+                      if item.flag_bits & 1:
+                          raise SystemExit("Encrypted ZIP unsupported")
+          PY
+
+      - name: Prepare Website Files
+        env:
+          ARCHIVE_PATH: ${{ inputs.archive_path }}
+        run: |
+          mkdir -p app/src/main/assets/www
+
+          python3 - <<'PY'
+          import os
+          import zipfile
+          import shutil
+          import pathlib
+
+          source = pathlib.Path(os.environ["ARCHIVE_PATH"])
+          output = pathlib.Path("app/src/main/assets/www")
+          output.mkdir(parents=True, exist_ok=True)
+
+          if source.suffix.lower() == ".zip":
+              with zipfile.ZipFile(source) as archive:
+                  for item in archive.infolist():
+                      name = item.filename.replace("\\", "/")
+                      target = (output / name).resolve()
+
+                      if not target.is_relative_to(output.resolve()):
+                          raise SystemExit("Unsafe extraction path")
+
+                      if item.is_dir():
+                          target.mkdir(parents=True, exist_ok=True)
+                      else:
+                          target.parent.mkdir(parents=True, exist_ok=True)
+                          with archive.open(item) as src, open(target, "wb") as dst:
+                              shutil.copyfileobj(src, dst)
+          else:
+              destination = output / ("index" + source.suffix.lower())
+              shutil.copyfile(source, destination)
+
+          index = output / "index.html"
+
+          if not index.exists():
+              index.write_text(
+                  "<!DOCTYPE html><html><head>"
+                  "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+                  "<title>PHP Hosting Required</title></head>"
+                  "<body><h2>Website needs a PHP server</h2>"
+                  "<p>Upload and host your PHP project on a PHP-enabled server, "
+                  "then configure the app to open its URL.</p></body></html>",
+                  encoding="utf-8"
+              )
+          PY
+
+      - name: Prepare Android Project
+        run: |
+          mkdir -p app/src/main/java/com/ajmeer/apkbuilder
+
+          cp android-wrapper/settings.gradle .
+          cp android-wrapper/build.gradle .
+          cp android-wrapper/app/build.gradle app/
+          cp android-wrapper/app/src/main/AndroidManifest.xml app/src/main/
+          cp android-wrapper/app/src/main/java/com/ajmeer/apkbuilder/MainActivity.java \
+            app/src/main/java/com/ajmeer/apkbuilder/
+
+      - name: Build Debug APK
+        run: |
+          gradle --no-daemon assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ajmeer-Website-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
