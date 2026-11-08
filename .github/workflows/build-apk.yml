@@ -1,5 +1,4 @@
-
-name: Automatic APK Builder
+Name: Automatic APK Builder
 
 on:
   workflow_dispatch:
@@ -28,6 +27,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-sdk-license: true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
