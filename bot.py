@@ -24,7 +24,7 @@ from telegram.ext import (
 # AUTOMATIC APK BUILDER
 # ==========================================
 
-BOT_TOKEN = os.environ["8851145300:AAF2GmY9jk-TXO-gYd-GSx6wL1_ph90YmP4"]
+BOT_TOKEN = os.environ.get('8851145300:AAF2GmY9jk-TXO-gYd-GSx6wL1_ph90YmP4')
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 
 GITHUB_OWNER = os.environ["GITHUB_OWNER"]
